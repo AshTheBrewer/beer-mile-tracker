@@ -4,6 +4,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../api/models/api_leaderboard.dart';
 import '../../core/config.dart';
 import '../../providers/event_providers.dart';
+import '../../utils/rank_utils.dart';
 import '../../widgets/empty_state.dart';
 import '../../widgets/loading_indicator.dart';
 
@@ -65,11 +66,16 @@ class _LeaderboardScreenState extends ConsumerState<LeaderboardScreen> {
             );
           }
 
+          // Compute competition ranks (1224 style) so tied times share a rank.
+          final ranks = computeRanks(
+              filtered.map((e) => e.totalElapsedMs).toList());
+
           return ListView.separated(
             padding: const EdgeInsets.all(16),
             itemCount: filtered.length,
             separatorBuilder: (_, __) => const Divider(height: 1),
-            itemBuilder: (ctx, i) => _EntryRow(entry: filtered[i], rank: i + 1),
+            itemBuilder: (ctx, i) =>
+                _EntryRow(entry: filtered[i], rank: ranks[i]),
           );
         },
         loading: () => const LoadingIndicator(message: 'Loading leaderboard…'),
