@@ -11,16 +11,20 @@ import '../database/daos/lap_logs_dao.dart';
 import '../database/daos/registrations_dao.dart';
 import 'auth_providers.dart';
 
-final _apiProvider = Provider<ApiClient>(
+/// API client provider.  Exposed so tests can override it with a fake client
+/// that throws a [SocketException] to exercise the offline fallback path.
+final apiClientProvider = Provider<ApiClient>(
     (_) => ApiClient(baseUrl: AppConfig.apiBaseUrl));
 
-final _eventsDaoProvider =
+/// DAO providers are public so tests can inject fakes via [ProviderContainer]
+/// overrides, keeping tests free of any SQLite infrastructure.
+final eventsDaoProvider =
     Provider<EventsDao>((ref) => EventsDao(AppDatabase.instance));
 
-final _registrationsDaoProvider =
+final registrationsDaoProvider =
     Provider<RegistrationsDao>((ref) => RegistrationsDao(AppDatabase.instance));
 
-final _lapLogsDaoProvider =
+final lapLogsDaoProvider =
     Provider<LapLogsDao>((ref) => LapLogsDao(AppDatabase.instance));
 
 // ── Runner race history ────────────────────────────────────────────────────
@@ -75,7 +79,7 @@ final runnerHistoryProvider =
   if (user == null) return [];
 
   final token = await ref.watch(tokenProvider.future);
-  final api = ref.read(_apiProvider);
+  final api = ref.read(apiClientProvider);
 
   // ── Network path ────────────────────────────────────────────────────────
   if (token != null) {
@@ -117,9 +121,9 @@ final runnerHistoryProvider =
   }
 
   // ── Offline fallback ────────────────────────────────────────────────────
-  final eventsDao = ref.read(_eventsDaoProvider);
-  final regsDao = ref.read(_registrationsDaoProvider);
-  final lapLogsDao = ref.read(_lapLogsDaoProvider);
+  final eventsDao = ref.read(eventsDaoProvider);
+  final regsDao = ref.read(registrationsDaoProvider);
+  final lapLogsDao = ref.read(lapLogsDaoProvider);
 
   final localRegs = await regsDao.findByUser(user.id);
   if (localRegs.isEmpty) return [];
@@ -166,8 +170,8 @@ class EventsNotifier extends AsyncNotifier<List<ApiEvent>> {
   @override
   Future<List<ApiEvent>> build() async {
     final token = await ref.watch(tokenProvider.future);
-    final api = ref.read(_apiProvider);
-    final dao = ref.read(_eventsDaoProvider);
+    final api = ref.read(apiClientProvider);
+    final dao = ref.read(eventsDaoProvider);
     try {
       final remote = await api.listEvents(token: token);
       await dao.upsertAll(remote);
@@ -187,8 +191,8 @@ class EventsNotifier extends AsyncNotifier<List<ApiEvent>> {
 final eventDetailProvider =
     FutureProvider.family<ApiEvent?, int>((ref, id) async {
   final token = await ref.watch(tokenProvider.future);
-  final api = ref.read(_apiProvider);
-  final dao = ref.read(_eventsDaoProvider);
+  final api = ref.read(apiClientProvider);
+  final dao = ref.read(eventsDaoProvider);
   try {
     final event = await api.getEvent(id, token: token);
     await dao.upsert(event);
@@ -202,6 +206,6 @@ final eventDetailProvider =
 final leaderboardProvider =
     FutureProvider.family<List<ApiLeaderboardEntry>, int>((ref, eventId) async {
   final token = await ref.watch(tokenProvider.future);
-  final api = ref.read(_apiProvider);
+  final api = ref.read(apiClientProvider);
   return api.getLeaderboard(eventId, token: token);
 });
