@@ -34,6 +34,8 @@ class RunnerRaceResult {
     required this.totalElapsedMs,
     required this.finished,
     required this.laps,
+    this.finishPosition,
+    this.totalFinishers,
   });
 
   final ApiRegistration registration;
@@ -41,6 +43,13 @@ class RunnerRaceResult {
   final int totalElapsedMs;
   final bool finished;
   final List<ApiLapSplit> laps;
+
+  /// 1-based finishing position among all finishers in the event, or null
+  /// when leaderboard data was unavailable (e.g. offline fallback).
+  final int? finishPosition;
+
+  /// Total number of finishers in the event, or null when unavailable.
+  final int? totalFinishers;
 
   String get formattedTime {
     final m = totalElapsedMs ~/ 60000;
@@ -85,9 +94,18 @@ final runnerHistoryProvider =
     if (event == null) continue;
 
     ApiLeaderboardEntry? entry;
+    int? finishPosition;
+    int? totalFinishers;
     try {
       final board = await api.getLeaderboard(reg.eventId, token: token);
       entry = board.where((e) => e.userId == user.id).firstOrNull;
+
+      // Derive finishing rank from the full board (no extra API call needed).
+      final finishers = board.where((e) => e.finished).toList()
+        ..sort((a, b) => a.totalElapsedMs.compareTo(b.totalElapsedMs));
+      totalFinishers = finishers.length;
+      final idx = finishers.indexWhere((e) => e.userId == user.id);
+      if (idx >= 0) finishPosition = idx + 1; // 1-based
     } catch (_) {
       // Network unavailable — reconstruct from local lap_logs below.
     }
@@ -99,6 +117,8 @@ final runnerHistoryProvider =
         totalElapsedMs: entry.totalElapsedMs,
         finished: entry.finished,
         laps: entry.laps,
+        finishPosition: finishPosition,
+        totalFinishers: totalFinishers,
       ));
     } else {
       // Offline fallback: build from cached lap_logs.

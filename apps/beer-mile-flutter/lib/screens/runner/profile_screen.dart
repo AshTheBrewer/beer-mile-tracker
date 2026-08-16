@@ -297,6 +297,20 @@ class _RaceResultTile extends StatefulWidget {
 class _RaceResultTileState extends State<_RaceResultTile> {
   bool _expanded = false;
 
+  static String _ordinal(int n) {
+    if (n >= 11 && n <= 13) return '${n}th';
+    switch (n % 10) {
+      case 1:
+        return '${n}st';
+      case 2:
+        return '${n}nd';
+      case 3:
+        return '${n}rd';
+      default:
+        return '${n}th';
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
@@ -317,14 +331,27 @@ class _RaceResultTileState extends State<_RaceResultTile> {
             trailing: Row(
               mainAxisSize: MainAxisSize.min,
               children: [
-                Text(
-                  result.formattedTime,
-                  style: theme.textTheme.titleMedium?.copyWith(
-                    color: widget.isPersonalBest ? cs.primary : null,
-                    fontWeight: widget.isPersonalBest
-                        ? FontWeight.bold
-                        : FontWeight.normal,
-                  ),
+                Column(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  crossAxisAlignment: CrossAxisAlignment.end,
+                  children: [
+                    Text(
+                      result.formattedTime,
+                      style: theme.textTheme.titleMedium?.copyWith(
+                        color: widget.isPersonalBest ? cs.primary : null,
+                        fontWeight: widget.isPersonalBest
+                            ? FontWeight.bold
+                            : FontWeight.normal,
+                      ),
+                    ),
+                    if (result.finishPosition != null &&
+                        result.totalFinishers != null)
+                      Text(
+                        '${_ordinal(result.finishPosition!)} / ${result.totalFinishers}',
+                        style: theme.textTheme.bodySmall
+                            ?.copyWith(color: cs.onSurfaceVariant),
+                      ),
+                  ],
                 ),
                 const SizedBox(width: 4),
                 Icon(
