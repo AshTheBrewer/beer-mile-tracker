@@ -196,6 +196,18 @@ class ApiClient {
             .toList();
       });
 
+  /// Fetches all completed race results for the current runner in a single
+  /// request, replacing the old per-event leaderboard loop.
+  Future<List<ApiRaceHistoryEntry>> getRaceHistory(
+          {required String token}) =>
+      _get('/users/me/race-history', token, (j) {
+        final list = j as List<dynamic>;
+        return list
+            .map((e) =>
+                ApiRaceHistoryEntry.fromJson(e as Map<String, dynamic>))
+            .toList();
+      });
+
   // ── Admin ──────────────────────────────────────────────────────────────────
 
   Future<ApiAdminAnalytics> getAnalytics({required String token}) =>

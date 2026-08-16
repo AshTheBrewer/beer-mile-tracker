@@ -58,8 +58,17 @@ class RunnerRaceResult {
   }
 }
 
-/// Fetches the current runner's complete race history (network-first, local
-/// fallback).  Returns results sorted newest-first.
+/// Fetches the current runner's complete race history.
+///
+/// Network path: calls `GET /users/me/race-history` — a single endpoint that
+/// returns all completed results with finish positions in one round-trip,
+/// avoiding the old per-event leaderboard loop.
+///
+/// Offline fallback: when the network is unavailable the provider reconstructs
+/// results from locally-cached registrations and lap_logs so that previously
+/// seen history still appears without a connection.
+///
+/// Returns results sorted newest-first.
 final runnerHistoryProvider =
     FutureProvider<List<RunnerRaceResult>>((ref) async {
   final user = await ref.watch(authStateProvider.future);
@@ -67,86 +76,83 @@ final runnerHistoryProvider =
 
   final token = await ref.watch(tokenProvider.future);
   final api = ref.read(_apiProvider);
+
+  // ── Network path ────────────────────────────────────────────────────────
+  if (token != null) {
+    try {
+      final history = await api.getRaceHistory(token: token);
+      // The API only returns finished races, already sorted newest-first.
+      return history.map((entry) {
+        // Reconstruct the lightweight model objects the UI expects.
+        final event = ApiEvent(
+          id: entry.eventId,
+          tenantId: entry.tenantId,
+          title: entry.eventTitle,
+          eventCode: entry.eventCode,
+          eventDate: entry.eventDate,
+          status: entry.eventStatus,
+          createdAt: entry.eventCreatedAt,
+          locationName: entry.locationName,
+        );
+        final registration = ApiRegistration(
+          id: entry.registrationId,
+          eventId: entry.eventId,
+          userId: user.id,
+          paymentStatus: 'confirmed',
+          registeredAt: entry.registeredAt,
+        );
+        return RunnerRaceResult(
+          registration: registration,
+          event: event,
+          totalElapsedMs: entry.totalElapsedMs,
+          finished: entry.finished,
+          laps: entry.laps,
+          finishPosition: entry.finishPosition,
+          totalFinishers: entry.totalFinishers,
+        );
+      }).toList();
+    } catch (_) {
+      // Network unavailable — fall through to offline reconstruction.
+    }
+  }
+
+  // ── Offline fallback ────────────────────────────────────────────────────
   final eventsDao = ref.read(_eventsDaoProvider);
   final regsDao = ref.read(_registrationsDaoProvider);
   final lapLogsDao = ref.read(_lapLogsDaoProvider);
 
-  // 1. Get all cached registrations for this user from local DB.
   final localRegs = await regsDao.findByUser(user.id);
   if (localRegs.isEmpty) return [];
 
-  // 2. Build a map of eventId → event (from local cache, refresh if possible).
-  List<ApiEvent> allEvents;
-  try {
-    allEvents = await api.listEvents(token: token);
-    await eventsDao.upsertAll(allEvents);
-  } catch (_) {
-    allEvents = await eventsDao.findAll();
-  }
+  final allEvents = await eventsDao.findAll();
   final eventMap = {for (final e in allEvents) e.id: e};
 
-  // 3. For each registration, try to fetch leaderboard entry from network;
-  //    fall back to reconstructing from local lap_logs.
   final results = <RunnerRaceResult>[];
-
   for (final reg in localRegs) {
     final event = eventMap[reg.eventId];
     if (event == null) continue;
 
-    ApiLeaderboardEntry? entry;
-    int? finishPosition;
-    int? totalFinishers;
-    try {
-      final board = await api.getLeaderboard(reg.eventId, token: token);
-      entry = board.where((e) => e.userId == user.id).firstOrNull;
+    final localLaps = await lapLogsDao.findByRegistration(reg.id);
+    if (localLaps.length < 4) continue; // Only show completed races.
 
-      // Derive finishing rank from the full board (no extra API call needed).
-      final finishers = board.where((e) => e.finished).toList()
-        ..sort((a, b) => a.totalElapsedMs.compareTo(b.totalElapsedMs));
-      totalFinishers = finishers.length;
-      final idx = finishers.indexWhere((e) => e.userId == user.id);
-      if (idx >= 0) finishPosition = idx + 1; // 1-based
-    } catch (_) {
-      // Network unavailable — reconstruct from local lap_logs below.
-    }
-
-    if (entry != null && entry.finished) {
-      results.add(RunnerRaceResult(
-        registration: reg,
-        event: event,
-        totalElapsedMs: entry.totalElapsedMs,
-        finished: entry.finished,
-        laps: entry.laps,
-        finishPosition: finishPosition,
-        totalFinishers: totalFinishers,
-      ));
-    } else {
-      // Offline fallback: build from cached lap_logs.
-      final localLaps = await lapLogsDao.findByRegistration(reg.id);
-      if (localLaps.isEmpty) continue;
-      final allFour = localLaps.length == 4;
-      final totalMs = allFour
-          ? localLaps.map((l) => l.elapsedMs).reduce((a, b) => a + b)
-          : 0;
-      if (!allFour) continue; // Only show completed races.
-      results.add(RunnerRaceResult(
-        registration: reg,
-        event: event,
-        totalElapsedMs: totalMs,
-        finished: true,
-        laps: localLaps
-            .map((l) => ApiLapSplit(
-                  lapNumber: l.lapNumber,
-                  elapsedMs: l.elapsedMs,
-                  pourConfirmed: l.pourConfirmed,
-                  splitTimeMs: l.splitTimeMs,
-                ))
-            .toList(),
-      ));
-    }
+    final totalMs = localLaps.map((l) => l.elapsedMs).reduce((a, b) => a + b);
+    results.add(RunnerRaceResult(
+      registration: reg,
+      event: event,
+      totalElapsedMs: totalMs,
+      finished: true,
+      laps: localLaps
+          .map((l) => ApiLapSplit(
+                lapNumber: l.lapNumber,
+                elapsedMs: l.elapsedMs,
+                pourConfirmed: l.pourConfirmed,
+                splitTimeMs: l.splitTimeMs,
+              ))
+          .toList(),
+      // Finish position unavailable offline.
+    ));
   }
 
-  // Sort newest event first.
   results.sort((a, b) =>
       b.registration.registeredAt.compareTo(a.registration.registeredAt));
   return results;

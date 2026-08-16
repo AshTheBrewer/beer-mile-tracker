@@ -1,7 +1,7 @@
 import { Router, type IRouter } from "express";
-import { eq } from "drizzle-orm";
+import { eq, and, sql } from "drizzle-orm";
 import { createClerkClient, getAuth } from "@clerk/express";
-import { db, usersTable, tenantsTable } from "@workspace/db";
+import { db, usersTable, tenantsTable, registrationsTable, eventsTable, lapLogsTable } from "@workspace/db";
 import { requireAuth } from "../middlewares/requireAuth";
 import {
   ProvisionUserBody,
@@ -87,6 +87,127 @@ router.patch("/users/me", requireAuth, async (req, res): Promise<void> => {
     return;
   }
   res.json(updated);
+});
+
+// GET /users/me/race-history — all completed races for the current runner in one call
+router.get("/users/me/race-history", requireAuth, async (req, res): Promise<void> => {
+  const userId = req.userId!;
+
+  // 1. Get all confirmed registrations for this user, joined with event data
+  const userRegs = await db
+    .select({
+      regId: registrationsTable.id,
+      eventId: registrationsTable.eventId,
+      registeredAt: registrationsTable.registeredAt,
+      tenantId: eventsTable.tenantId,
+      eventTitle: eventsTable.title,
+      eventCode: eventsTable.eventCode,
+      eventDate: eventsTable.eventDate,
+      eventStatus: eventsTable.status,
+      eventCreatedAt: eventsTable.createdAt,
+      locationName: eventsTable.locationName,
+    })
+    .from(registrationsTable)
+    .innerJoin(eventsTable, eq(registrationsTable.eventId, eventsTable.id))
+    .where(
+      and(
+        eq(registrationsTable.userId, userId),
+        eq(registrationsTable.paymentStatus, "confirmed"),
+      ),
+    );
+
+  if (userRegs.length === 0) {
+    res.json([]);
+    return;
+  }
+
+  // 2. Get all confirmed registrations across those events (needed to compute finish positions)
+  const eventIds = [...new Set(userRegs.map((r) => r.eventId))];
+  const allEventRegs = await db
+    .select({
+      regId: registrationsTable.id,
+      eventId: registrationsTable.eventId,
+      userId: registrationsTable.userId,
+    })
+    .from(registrationsTable)
+    .where(
+      and(
+        sql`${registrationsTable.eventId} = ANY(ARRAY[${sql.join(eventIds.map((id) => sql`${id}`), sql`, `)}]::int[])`,
+        eq(registrationsTable.paymentStatus, "confirmed"),
+      ),
+    );
+
+  // 3. Fetch all lap logs for all registrations in those events in a single query
+  const allRegIds = allEventRegs.map((r) => r.regId);
+  const allLaps = allRegIds.length > 0
+    ? await db
+        .select()
+        .from(lapLogsTable)
+        .where(
+          sql`${lapLogsTable.registrationId} = ANY(ARRAY[${sql.join(allRegIds.map((id) => sql`${id}`), sql`, `)}]::int[])`,
+        )
+    : [];
+
+  // 4. Build a result for each of the user's registrations
+  const results: object[] = [];
+
+  for (const reg of userRegs) {
+    const userLaps = allLaps
+      .filter((l) => l.registrationId === reg.regId)
+      .sort((a, b) => a.lapNumber - b.lapNumber);
+
+    const maxLap = userLaps.length > 0 ? Math.max(...userLaps.map((l) => l.lapNumber)) : 0;
+    const totalElapsedMs = userLaps.length > 0 ? Math.max(...userLaps.map((l) => l.elapsedMs)) : 0;
+    const finished = maxLap >= 4 && userLaps.length >= 4;
+
+    if (!finished) continue; // Only include completed races
+
+    // Compute finish position using all finishers in this event
+    const eventRegs = allEventRegs.filter((r) => r.eventId === reg.eventId);
+    const finishers = eventRegs
+      .map((r) => {
+        const laps = allLaps.filter((l) => l.registrationId === r.regId);
+        const mxLap = laps.length > 0 ? Math.max(...laps.map((l) => l.lapNumber)) : 0;
+        const totalMs = laps.length > 0 ? Math.max(...laps.map((l) => l.elapsedMs)) : 0;
+        return { regId: r.regId, totalMs, finished: mxLap >= 4 && laps.length >= 4 };
+      })
+      .filter((f) => f.finished)
+      .sort((a, b) => a.totalMs - b.totalMs);
+
+    const totalFinishers = finishers.length;
+    const posIdx = finishers.findIndex((f) => f.regId === reg.regId);
+    const finishPosition = posIdx >= 0 ? posIdx + 1 : null;
+
+    results.push({
+      eventId: reg.eventId,
+      tenantId: reg.tenantId,
+      eventTitle: reg.eventTitle,
+      eventCode: reg.eventCode,
+      eventDate: reg.eventDate,
+      eventStatus: reg.eventStatus,
+      eventCreatedAt: reg.eventCreatedAt,
+      locationName: reg.locationName,
+      registrationId: reg.regId,
+      registeredAt: reg.registeredAt,
+      totalElapsedMs,
+      finished,
+      finishPosition,
+      totalFinishers,
+      laps: userLaps.map((l) => ({
+        lapNumber: l.lapNumber,
+        elapsedMs: l.elapsedMs,
+        splitTimeMs: l.splitTimeMs,
+        pourConfirmed: l.pourConfirmed,
+      })),
+    });
+  }
+
+  // Sort newest-first by registeredAt
+  (results as Array<{ registeredAt: Date }>).sort(
+    (a, b) => b.registeredAt.getTime() - a.registeredAt.getTime(),
+  );
+
+  res.json(results);
 });
 
 // GET /tenants/me
