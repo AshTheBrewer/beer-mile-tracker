@@ -1,0 +1,111 @@
+Build a multi-tenant Beer Mile event tracking application using Flutter (Dart) for the frontend (supporting Web, iOS, and Android) and a Node.js/TypeScript backend with a PostgreSQL database.
+
+### System Architecture & Tech Stack
+1. **Frontend:** Flutter/Dart with responsive Web and Mobile layouts. State management via Riverpod/Provider. Use Drift (SQLite wrapper) or Hive for the local client database layer.
+2. **Backend:** Node.js (Express or NestJS) with PostgreSQL (Prisma or TypeORM). Design the database and APIs to be fully multi-tenant.
+3. **Database & Hosting:** Design for deployment on Railway with environment variable configurations and custom domain support.
+4. **Hardware/Scanning Integration:** Integrate NFC reading/writing capabilities (using `nfc_manager`) and QR code scanning/generation (using `mobile_scanner`) to read and program RFID/NFC tags or scan QR IDs.
+5. **Auth:** Firebase Auth or Supabase Auth supporting Google, Apple, and Email/Password sign-in/sign-up.
+
+---
+
+### Offline-First Race Tracking Architecture
+
+Events frequently occur in areas with poor cellular service (e.g., parks, tracks, remote venues). The scanning and timing engine MUST operate 100% offline during race operations without requiring active server connections.
+
+#### 1. Local-First Synchronization Protocol
+- **Pre-Race Sync (Download Phase):** 
+  - Before a race starts, the Host device downloads and caches the full Event profile, list of Confirmed Registrations, and pre-generated runner UUID tokens into the local device database (Drift/SQLite).
+- **Offline Scanner Execution:**
+  - When scanning NFC tags or QR codes during a race, all timing reads (`timestamp_utc`, `runner_id`, `lap_number`, `pour_confirmed`) write directly to the local database first with an instant UI render (<50ms response).
+  - Every offline log entry generates a unique UUID `client_event_log_id`, an `is_synced: false` flag, and a `device_monotonic_timestamp`.
+- **Background Synchronization Engine:**
+  - Utilize `connectivity_plus` to listen for network restored status.
+  - When connected, process an idempotent queue via background worker (`workmanager` or HTTP queue loop) pushing records in atomic batches (50 records per payload).
+  - The backend returns an array of successfully processed `client_event_log_id`s, marking those local records as `is_synced: true`.
+
+#### 2. Conflict Resolution & Time Sync Mechanics
+- **Clock Drift Mitigation:** 
+  - Do not rely purely on system clock time. When the host device initiates "Start Race", compute `device_time_delta = device_wall_time - server_ntp_time`. 
+  - Store relative elapsed millisecond offsets alongside raw wall-clock timestamps for every lap scan.
+- **Multi-Scanner Deduplication:**
+  - If multiple hosts/volunteers are scanning the same runner offline, conflict resolution rules at the backend follow **"Earliest Scan Wins"** per runner per lap:
+    `WHERE lap_number = X AND runner_id = Y -> KEEP MIN(elapsed_ms)`.
+- **NFC Offline Validation:**
+  - Write an encrypted payload directly onto the physical NFC tag containing `(runner_id + event_id + HMAC_signature)`. This allows the host phone to validate that a tag belongs to the current event even without network access.
+
+#### 3. Offline UI Indicators & Resilience
+- Displays an active **Network/Sync Status Banner** in Host Mode: 
+  - *Green:* Fully Synced.
+  - *Yellow/Orange:* Offline Mode - X Records Queued for Sync.
+  - *Red:* Sync Error / Retry Pending.
+- Add a manual **"Force Sync Queue"** trigger button in the Host Settings.
+
+---
+
+### User Roles & Roles Matrix
+1. **Super Admin (Platform Owner):**
+   - Full access to system-wide analytics (region usage, total events, total runners, system health).
+   - Ability to manage all tenants, hosts, events, and users across the platform.
+   - Admin console setting to enter App Store & Google Play Store links (displayed in the app footer/profile).
+2. **Tenant / Event Host:**
+   - Can create and manage their own events (set location, date, beer type, entry fees, prize descriptions).
+   - Access to a dedicated Host Console / Scanner Mode on mobile/web with offline capabilities.
+   - Ability to manually confirm participant payment (processed via alternate external platforms).
+   - Ability to program and link NFC tags or QR codes to registered participants (offline capable).
+   - Ability to define age/gender categories and configure event prizes/awards.
+3. **Participant / Runner:**
+   - Account creation via OAuth (Google, Apple) or Email/Phone.
+   - Profile management (Age, Gender, Preferred Name).
+   - Browse regional events or search/join using a private Event Code.
+   - View past event history, lap splits, total time, and live leaderboards (cached locally when offline).
+
+---
+
+### Key Workflows & Features
+
+#### 1. Registration & Payment Confirmation
+- Participant finds an event (browsing regional list or entering a private host code) and submits a registration request.
+- App displays host-specified payment instructions (e.g., Venmo, Zelle, CashApp link).
+- Registration stays in "Pending Payment" status until the Event Host toggles it to "Confirmed" in the Host Console.
+
+#### 2. Hardware Tag Provisioning (NFC / QR Code)
+- In the Host Console during check-in, the host selects a confirmed participant.
+- The host taps an unprogrammed NFC sticker or scans a physical QR tag/card.
+- The app writes/associates a unique `runner_token` to that tag/card in the local database and queues for server sync.
+
+#### 3. Race & Lap Tracking Engine
+- **Event Setup:** Standard event consists of 4 laps, with each lap tied to a 4-ounce beer pour.
+- **Start Event:** Host taps the runner’s NFC tag or scans their QR code at the start line to initialize Timer T0.
+- **Lap & Pour Logging:** At the end of each lap, the host/station attendant scans the runner's tag. The app records:
+  - Lap split time.
+  - Receipt and logging of the 4-ounce pour.
+- **Finish:** Upon scanning after the final lap and final 4 oz pour, the race finishes. Total elapsed time and lap breakdowns are recorded locally and displayed.
+
+#### 4. Leaderboards & Analytics
+- Live race leaderboard filterable by Overall, Gender, and Age Group (dynamically calculated from local offline db, merged with synced cloud state when online).
+- Host-configured prize displays attached to specific podium spots.
+- Host and Super Admin analytics: finish rate, average lap time per event, regional participant distribution.
+
+#### 5. Notifications & Alerts
+- Integrate ntfy server (or Firebase Cloud Messaging) for host alerts, race updates, start-line calls, and registration confirmations (triggered once online connectivity is established).
+
+---
+
+### Database Schema Guidelines
+Include models for:
+- `Users` (id, email, auth_provider, role, gender, birthdate, created_at)
+- `Tenants` / `Hosts` (id, user_id, organization_name, created_at)
+- `Events` (id, tenant_id, title, event_code, date, location_lat_lng, payment_instructions, prizes_json, status)
+- `Registrations` (id, event_id, user_id, payment_status, tag_uid, registered_at)
+- `LapLogs` (id, client_event_log_id, registration_id, lap_number, split_time, elapsed_ms, pour_confirmed, logged_at, is_synced)
+- `PlatformSettings` (id, app_store_ios_url, play_store_android_url)
+
+---
+
+### Design & UX Requirements
+- Modern, athletic, clean UI with high-contrast elements suitable for outdoors/sunlight visibility during timing operations.
+- Host Scanner Mode must offer rapid, high-feedback UI (vibration, distinct audio cues for successful NFC/QR scans vs errors).
+- Include dark mode and light mode.
+
+Build the backend API structure and local database sync layer first, followed by the Flutter UI with mock data fallbacks for quick testing.
