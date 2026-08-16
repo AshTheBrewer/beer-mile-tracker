@@ -217,13 +217,25 @@ class _RaceHistorySection extends StatelessWidget {
             final pb = results.reduce((a, b) =>
                 a.totalElapsedMs < b.totalElapsedMs ? a : b);
 
+            // Best rank = lowest (best) finishing position with known data.
+            final ranked = results
+                .where((r) => r.finishPosition != null)
+                .toList();
+            final int? bestRankPosition = ranked.isEmpty
+                ? null
+                : ranked
+                    .map((r) => r.finishPosition!)
+                    .reduce((a, b) => a < b ? a : b);
+
             return Column(
               children: [
-                _PersonalBestCard(pb: pb),
+                _PersonalBestCard(pb: pb, bestRankPosition: bestRankPosition),
                 const SizedBox(height: 12),
                 ...results.map((r) => _RaceResultTile(
                       result: r,
                       isPersonalBest: r == pb,
+                      isBestRank: bestRankPosition != null &&
+                          r.finishPosition == bestRankPosition,
                     )),
               ],
             );
@@ -235,8 +247,29 @@ class _RaceHistorySection extends StatelessWidget {
 }
 
 class _PersonalBestCard extends StatelessWidget {
-  const _PersonalBestCard({required this.pb});
+  const _PersonalBestCard({
+    required this.pb,
+    this.bestRankPosition,
+  });
   final RunnerRaceResult pb;
+
+  /// The best-ever finishing position across all races, or null when no
+  /// position data is available (e.g. history loaded from offline cache).
+  final int? bestRankPosition;
+
+  static String _ordinal(int n) {
+    if (n >= 11 && n <= 13) return '${n}th';
+    switch (n % 10) {
+      case 1:
+        return '${n}st';
+      case 2:
+        return '${n}nd';
+      case 3:
+        return '${n}rd';
+      default:
+        return '${n}th';
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -275,6 +308,26 @@ class _PersonalBestCard extends StatelessWidget {
                 ],
               ),
             ),
+            if (bestRankPosition != null) ...[
+              const SizedBox(width: 12),
+              Column(
+                crossAxisAlignment: CrossAxisAlignment.center,
+                children: [
+                  Text(
+                    'Best rank',
+                    style: theme.textTheme.labelSmall
+                        ?.copyWith(color: cs.onPrimaryContainer),
+                  ),
+                  Text(
+                    _ordinal(bestRankPosition!),
+                    style: theme.textTheme.titleMedium?.copyWith(
+                      color: cs.onPrimaryContainer,
+                      fontWeight: FontWeight.bold,
+                    ),
+                  ),
+                ],
+              ),
+            ],
           ],
         ),
       ),
@@ -286,9 +339,13 @@ class _RaceResultTile extends StatefulWidget {
   const _RaceResultTile({
     required this.result,
     required this.isPersonalBest,
+    this.isBestRank = false,
   });
   final RunnerRaceResult result;
   final bool isPersonalBest;
+
+  /// True when this result contains the runner's best-ever finishing position.
+  final bool isBestRank;
 
   @override
   State<_RaceResultTile> createState() => _RaceResultTileState();
@@ -350,6 +407,23 @@ class _RaceResultTileState extends State<_RaceResultTile> {
                         '${_ordinal(result.finishPosition!)} / ${result.totalFinishers}',
                         style: theme.textTheme.bodySmall
                             ?.copyWith(color: cs.onSurfaceVariant),
+                      ),
+                    if (widget.isBestRank)
+                      Container(
+                        margin: const EdgeInsets.only(top: 2),
+                        padding: const EdgeInsets.symmetric(
+                            horizontal: 6, vertical: 2),
+                        decoration: BoxDecoration(
+                          color: cs.tertiaryContainer,
+                          borderRadius: BorderRadius.circular(8),
+                        ),
+                        child: Text(
+                          'Best rank 🏆',
+                          style: theme.textTheme.labelSmall?.copyWith(
+                            color: cs.onTertiaryContainer,
+                            fontWeight: FontWeight.w600,
+                          ),
+                        ),
                       ),
                   ],
                 ),
