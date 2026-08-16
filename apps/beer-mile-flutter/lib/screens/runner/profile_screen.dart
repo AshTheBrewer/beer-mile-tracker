@@ -2,6 +2,8 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../providers/auth_providers.dart';
+import '../../api/models/api_leaderboard.dart';
+import '../../providers/event_providers.dart';
 import '../../widgets/loading_indicator.dart';
 
 class ProfileScreen extends ConsumerStatefulWidget {
@@ -40,6 +42,7 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
     final theme = Theme.of(context);
     final cs = theme.colorScheme;
     final authAsync = ref.watch(authStateProvider);
+    final historyAsync = ref.watch(runnerHistoryProvider);
 
     return Scaffold(
       appBar: AppBar(
@@ -125,6 +128,11 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
               ],
 
               const Divider(height: 40),
+
+              // ── Race history section ──────────────────────────────────────
+              _RaceHistorySection(historyAsync: historyAsync),
+
+              const Divider(height: 40),
               ListTile(
                 leading: const Icon(Icons.logout, color: Colors.red),
                 title: const Text('Sign Out', style: TextStyle(color: Colors.red)),
@@ -166,6 +174,236 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
         _ => 'Runner',
       };
 }
+
+// ── Race history ─────────────────────────────────────────────────────────────
+
+class _RaceHistorySection extends StatelessWidget {
+  const _RaceHistorySection({required this.historyAsync});
+  final AsyncValue<List<RunnerRaceResult>> historyAsync;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text('Race History', style: theme.textTheme.titleMedium),
+        const SizedBox(height: 12),
+        historyAsync.when(
+          loading: () => const Padding(
+            padding: EdgeInsets.symmetric(vertical: 24),
+            child: Center(child: CircularProgressIndicator()),
+          ),
+          error: (e, _) => Padding(
+            padding: const EdgeInsets.symmetric(vertical: 8),
+            child: Text('Could not load history: $e',
+                style: TextStyle(color: theme.colorScheme.error)),
+          ),
+          data: (results) {
+            if (results.isEmpty) {
+              return const Padding(
+                padding: EdgeInsets.symmetric(vertical: 16),
+                child: Center(
+                  child: Text(
+                    'No completed races yet.\nSign up for an event to get started!',
+                    textAlign: TextAlign.center,
+                  ),
+                ),
+              );
+            }
+
+            // Personal best = minimum totalElapsedMs among finished races.
+            final pb = results.reduce((a, b) =>
+                a.totalElapsedMs < b.totalElapsedMs ? a : b);
+
+            return Column(
+              children: [
+                _PersonalBestCard(pb: pb),
+                const SizedBox(height: 12),
+                ...results.map((r) => _RaceResultTile(
+                      result: r,
+                      isPersonalBest: r == pb,
+                    )),
+              ],
+            );
+          },
+        ),
+      ],
+    );
+  }
+}
+
+class _PersonalBestCard extends StatelessWidget {
+  const _PersonalBestCard({required this.pb});
+  final RunnerRaceResult pb;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final cs = theme.colorScheme;
+
+    return Card(
+      color: cs.primaryContainer,
+      child: Padding(
+        padding: const EdgeInsets.all(16),
+        child: Row(
+          children: [
+            Icon(Icons.emoji_events, color: cs.primary, size: 32),
+            const SizedBox(width: 12),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    'Personal Best',
+                    style: theme.textTheme.labelMedium
+                        ?.copyWith(color: cs.onPrimaryContainer),
+                  ),
+                  Text(
+                    pb.formattedTime,
+                    style: theme.textTheme.headlineSmall?.copyWith(
+                      color: cs.onPrimaryContainer,
+                      fontWeight: FontWeight.bold,
+                    ),
+                  ),
+                  Text(
+                    pb.event.title,
+                    style: theme.textTheme.bodySmall
+                        ?.copyWith(color: cs.onPrimaryContainer),
+                  ),
+                ],
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _RaceResultTile extends StatefulWidget {
+  const _RaceResultTile({
+    required this.result,
+    required this.isPersonalBest,
+  });
+  final RunnerRaceResult result;
+  final bool isPersonalBest;
+
+  @override
+  State<_RaceResultTile> createState() => _RaceResultTileState();
+}
+
+class _RaceResultTileState extends State<_RaceResultTile> {
+  bool _expanded = false;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final cs = theme.colorScheme;
+    final result = widget.result;
+    final event = result.event;
+
+    return Card(
+      margin: const EdgeInsets.only(bottom: 8),
+      child: Column(
+        children: [
+          ListTile(
+            leading: widget.isPersonalBest
+                ? Icon(Icons.emoji_events, color: cs.primary)
+                : const Icon(Icons.flag_outlined),
+            title: Text(event.title),
+            subtitle: Text(event.eventDate),
+            trailing: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Text(
+                  result.formattedTime,
+                  style: theme.textTheme.titleMedium?.copyWith(
+                    color: widget.isPersonalBest ? cs.primary : null,
+                    fontWeight: widget.isPersonalBest
+                        ? FontWeight.bold
+                        : FontWeight.normal,
+                  ),
+                ),
+                const SizedBox(width: 4),
+                Icon(
+                  _expanded
+                      ? Icons.keyboard_arrow_up
+                      : Icons.keyboard_arrow_down,
+                  size: 20,
+                ),
+              ],
+            ),
+            onTap: () => setState(() => _expanded = !_expanded),
+          ),
+          if (_expanded) ...[
+            const Divider(height: 1),
+            Padding(
+              padding: const EdgeInsets.fromLTRB(16, 8, 16, 12),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    'Lap Splits',
+                    style: theme.textTheme.labelSmall
+                        ?.copyWith(color: cs.onSurfaceVariant),
+                  ),
+                  const SizedBox(height: 6),
+                  if (result.laps.isEmpty)
+                    const Text('No lap data available.')
+                  else
+                    ...result.laps.map((lap) => _LapSplitRow(lap: lap)),
+                ],
+              ),
+            ),
+          ],
+        ],
+      ),
+    );
+  }
+}
+
+class _LapSplitRow extends StatelessWidget {
+  const _LapSplitRow({required this.lap});
+  final ApiLapSplit lap;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final ms = lap.elapsedMs;
+    final m = ms ~/ 60000;
+    final s = (ms % 60000) / 1000;
+    final timeStr =
+        m > 0 ? '${m}m ${s.toStringAsFixed(1)}s' : '${s.toStringAsFixed(1)}s';
+
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 3),
+      child: Row(
+        children: [
+          SizedBox(
+            width: 56,
+            child: Text(
+              'Lap ${lap.lapNumber}',
+              style: theme.textTheme.bodySmall,
+            ),
+          ),
+          Expanded(
+            child: Text(
+              timeStr,
+              style: theme.textTheme.bodyMedium,
+            ),
+          ),
+          if (lap.pourConfirmed)
+            Icon(Icons.sports_bar, size: 16,
+                color: theme.colorScheme.secondary),
+        ],
+      ),
+    );
+  }
+}
+
+// ── Shared info tile ──────────────────────────────────────────────────────────
 
 class _InfoTile extends StatelessWidget {
   const _InfoTile(this.label, this.value);

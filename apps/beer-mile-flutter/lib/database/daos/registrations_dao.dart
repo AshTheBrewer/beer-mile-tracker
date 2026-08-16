@@ -33,6 +33,16 @@ class RegistrationsDao {
             : null,
       );
 
+  Future<List<ApiRegistration>> findByUser(String userId) async {
+    final rows = await _db.db.query(
+      AppDatabase.kRegistrations,
+      where: 'user_id = ?',
+      whereArgs: [userId],
+      orderBy: 'registered_at DESC',
+    );
+    return rows.map(_rowToReg).toList();
+  }
+
   Future<List<ApiRegistration>> findByEvent(int eventId) async {
     final rows = await _db.db.query(
       AppDatabase.kRegistrations,
