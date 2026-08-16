@@ -28,6 +28,10 @@ class _ScannerModeScreenState extends ConsumerState<ScannerModeScreen> {
 
   // Per-runner display: registrationId → list of elapsed_ms per lap
   final Map<int, List<int>> _runnerLaps = {};
+
+  /// In-memory display name cache populated from pre-race sync.
+  /// Names are sourced from the server API — never from local SQLite.
+  /// This map is discarded when the scanner screen is closed.
   final Map<int, String> _runnerNames = {};
 
   // Scan feedback
@@ -43,7 +47,7 @@ class _ScannerModeScreenState extends ConsumerState<ScannerModeScreen> {
   MobileScannerController? _qrController;
   bool _scanMode = false; // false = NFC, true = QR
 
-  // DAO for runner-token lookup
+  // DAO for runner-token lookup (opaque IDs only — no PII in local DB)
   late RegistrationsDao _regsDao;
 
   Timer? _clockTimer;
@@ -64,30 +68,35 @@ class _ScannerModeScreenState extends ConsumerState<ScannerModeScreen> {
   // ── Pre-race sync ──────────────────────────────────────────────────────────
 
   /// Shows a blocking dialog that runs [SyncEngine.preRaceSync].
-  /// Returns true if the race can proceed (sync OK or user accepts offline).
-  Future<bool> _runPreRaceSync() async {
+  /// Returns whether the race can proceed and the in-memory name map.
+  Future<(bool proceed, Map<int, String>? nameMap)> _runPreRaceSync() async {
     final token = await ref.read(tokenProvider.future);
-    if (token == null) return false;
+    if (token == null) return (false, null);
 
-    bool? result;
+    (bool, Map<int, String>?)? result;
     await showDialog<void>(
       context: context,
       barrierDismissible: false,
       builder: (ctx) => _PreRaceSyncDialog(
         eventId: widget.eventId,
         token: token,
-        onResult: (ok) {
-          result = ok;
+        onResult: (ok, nameMap) {
+          result = (ok, nameMap);
           Navigator.of(ctx).pop();
         },
       ),
     );
-    return result ?? false;
+    return result ?? (false, null);
   }
 
   Future<void> _initiateStart() async {
-    final proceed = await _runPreRaceSync();
+    final (proceed, nameMap) = await _runPreRaceSync();
     if (!proceed || !mounted) return;
+    // Populate in-memory name map from the server API response.
+    // These names are NEVER stored to SQLite — see SECURITY.md.
+    if (nameMap != null) {
+      _runnerNames.addAll(nameMap);
+    }
     _startRace();
   }
 
@@ -119,8 +128,8 @@ class _ScannerModeScreenState extends ConsumerState<ScannerModeScreen> {
         if (message != null && message.records.isNotEmpty) {
           final raw = message.records.first.payload;
           // NFC text records: first 3 bytes = status + language code
-          final payload = String.fromCharCodes(
-              raw.length > 3 ? raw.skip(3) : raw);
+          final payload =
+              String.fromCharCodes(raw.length > 3 ? raw.skip(3) : raw);
           await _handleToken(payload);
         }
       } catch (_) {}
@@ -129,6 +138,7 @@ class _ScannerModeScreenState extends ConsumerState<ScannerModeScreen> {
 
   Future<void> _handleToken(String token) async {
     if (!_raceStarted) return;
+
     final regInfo = await _regsDao.findByToken(token);
     if (regInfo == null) {
       _showFeedback(false, 'Unknown runner — sync tags before race');
@@ -137,7 +147,7 @@ class _ScannerModeScreenState extends ConsumerState<ScannerModeScreen> {
 
     // Reject tokens that belong to a different event (stale cache from a
     // previous race).  Pre-race sync populates the cache for widget.eventId
-    // only, so a mismatch here means an old or wrong tag was scanned.
+    // only, so a mismatch means an old or wrong tag was scanned.
     final tokenEventId = regInfo['event_id'] as int;
     if (tokenEventId != widget.eventId) {
       _showFeedback(false, 'Tag belongs to a different event — re-sync');
@@ -145,8 +155,12 @@ class _ScannerModeScreenState extends ConsumerState<ScannerModeScreen> {
     }
 
     final registrationId = regInfo['registration_id'] as int;
-    final name =
-        regInfo['display_name'] as String? ?? 'Runner #$registrationId';
+
+    // Display name is resolved from the in-memory map populated at pre-race
+    // sync.  Falls back to an opaque label when offline or name unavailable.
+    // Names are NEVER read from the local SQLite database — see SECURITY.md.
+    final name = _runnerNames[registrationId] ?? 'Runner #$registrationId';
+
     final currentLaps = _runnerLaps[registrationId] ?? [];
     final nextLap = currentLaps.length + 1;
 
@@ -159,20 +173,20 @@ class _ScannerModeScreenState extends ConsumerState<ScannerModeScreen> {
     // Split = time since last lap (or since race start for lap 1)
     final split = currentLaps.isEmpty ? elapsed : elapsed - currentLaps.last;
 
-    final accepted = await ref.read(lapScanNotifierProvider.notifier).recordScan(
-      registrationId: registrationId,
-      lapNumber: nextLap,
-      elapsedMs: elapsed,
-      splitTimeMs: split,
-      pourConfirmed: true,
-      deviceMonotonicTimestamp: DateTime.now().millisecondsSinceEpoch,
-    );
+    final accepted =
+        await ref.read(lapScanNotifierProvider.notifier).recordScan(
+              registrationId: registrationId,
+              lapNumber: nextLap,
+              elapsedMs: elapsed,
+              splitTimeMs: split,
+              pourConfirmed: true,
+              deviceMonotonicTimestamp: DateTime.now().millisecondsSinceEpoch,
+            );
 
     if (!mounted) return;
 
     if (accepted) {
       setState(() {
-        _runnerNames[registrationId] = name;
         _runnerLaps[registrationId] = [...currentLaps, elapsed];
       });
 
@@ -219,6 +233,7 @@ class _ScannerModeScreenState extends ConsumerState<ScannerModeScreen> {
     _clockTimer?.cancel();
     if (_nfcListening) NfcManager.instance.stopSession();
     _qrController?.dispose();
+    // _runnerNames discarded here — PII leaves memory on screen close.
     super.dispose();
   }
 
@@ -284,7 +299,7 @@ class _ScannerModeScreenState extends ConsumerState<ScannerModeScreen> {
                       width: 16,
                       height: 16,
                       decoration: const BoxDecoration(
-                        color: Colors.orange, shape: BoxShape.circle),
+                          color: Colors.orange, shape: BoxShape.circle),
                       child: Text('$count',
                           style: const TextStyle(
                               fontSize: 9, color: Colors.white),
@@ -303,9 +318,8 @@ class _ScannerModeScreenState extends ConsumerState<ScannerModeScreen> {
     if (!_scanFeedback) return const SizedBox.shrink();
     return AnimatedContainer(
       duration: const Duration(milliseconds: 200),
-      color: _scanSuccess
-          ? const Color(0xFF4ADE80)
-          : const Color(0xFFF87171),
+      color:
+          _scanSuccess ? const Color(0xFF4ADE80) : const Color(0xFFF87171),
       padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 14),
       child: Row(
         children: [
@@ -506,7 +520,11 @@ class _PreRaceSyncDialog extends ConsumerStatefulWidget {
 
   final int eventId;
   final String token;
-  final void Function(bool proceed) onResult;
+
+  /// Called with (proceed, nameMap) when sync completes or is dismissed.
+  /// [nameMap] is non-null on success; null on failure/offline fallback.
+  /// [nameMap] must stay in memory only — never written to persistent storage.
+  final void Function(bool proceed, Map<int, String>? nameMap) onResult;
 
   @override
   ConsumerState<_PreRaceSyncDialog> createState() =>
@@ -525,14 +543,14 @@ class _PreRaceSyncDialogState extends ConsumerState<_PreRaceSyncDialog> {
 
   Future<void> _runSync() async {
     try {
-      await ref.read(syncEngineProvider).preRaceSync(
+      final nameMap = await ref.read(syncEngineProvider).preRaceSync(
             eventId: widget.eventId,
             token: widget.token,
           );
       if (mounted) setState(() => _phase = _SyncPhase.done);
-      // Short delay so the user sees the success state
+      // Short delay so the user sees the success state.
       await Future.delayed(const Duration(milliseconds: 800));
-      if (mounted) widget.onResult(true);
+      if (mounted) widget.onResult(true, nameMap);
     } catch (e) {
       if (mounted) {
         setState(() {
@@ -580,13 +598,14 @@ class _PreRaceSyncDialogState extends ConsumerState<_PreRaceSyncDialog> {
       actions: _phase == _SyncPhase.error
           ? [
               TextButton(
-                onPressed: () => widget.onResult(false),
+                onPressed: () => widget.onResult(false, null),
                 child: const Text('Cancel',
                     style: TextStyle(color: Colors.grey)),
               ),
               FilledButton(
-                style: FilledButton.styleFrom(backgroundColor: Colors.orange),
-                onPressed: () => widget.onResult(true),
+                style:
+                    FilledButton.styleFrom(backgroundColor: Colors.orange),
+                onPressed: () => widget.onResult(true, null),
                 child: const Text('Proceed Offline',
                     style: TextStyle(color: Colors.black)),
               ),

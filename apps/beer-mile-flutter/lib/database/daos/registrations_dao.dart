@@ -4,6 +4,10 @@ import '../app_database.dart';
 import '../../api/models/api_registration.dart';
 
 /// DAO for cached registration records and the local runner-token map.
+///
+/// PII policy: [upsertRunnerToken] stores only opaque IDs.  Display names
+/// and email addresses are never written to the local database — they are
+/// held in memory during a scanner session only.  See SECURITY.md.
 class RegistrationsDao {
   RegistrationsDao(this._db);
   final AppDatabase _db;
@@ -79,12 +83,15 @@ class RegistrationsDao {
 
   // ── Runner token map ───────────────────────────────────────────────────────
 
+  /// Persists a token → registration mapping for offline NFC/QR lookup.
+  ///
+  /// **PII policy**: only opaque IDs are stored.  Callers must NOT pass a
+  /// display name; names must be kept in the calling scope's memory only.
   Future<void> upsertRunnerToken({
     required String token,
     required int registrationId,
     required int eventId,
     required String userId,
-    String? displayName,
   }) async {
     await _db.db.insert(
       AppDatabase.kRunnerTokens,
@@ -93,7 +100,7 @@ class RegistrationsDao {
         'registration_id': registrationId,
         'event_id': eventId,
         'user_id': userId,
-        'display_name': displayName,
+        // display_name intentionally absent — PII must not be persisted locally.
       },
       conflictAlgorithm: ConflictAlgorithm.replace,
     );

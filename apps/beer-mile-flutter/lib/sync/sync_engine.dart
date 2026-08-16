@@ -2,6 +2,7 @@ import 'dart:async';
 import 'package:connectivity_plus/connectivity_plus.dart';
 
 import '../api/api_client.dart';
+import '../api/models/api_registration.dart';
 import '../core/config.dart';
 import '../database/app_database.dart';
 import '../database/daos/events_dao.dart';
@@ -88,8 +89,13 @@ class SyncEngine {
 
   // ── Pre-Race Sync ──────────────────────────────────────────────────────────
 
-  /// Download and cache event + confirmed registrations before race start.
-  Future<void> preRaceSync({
+  /// Downloads and caches the event + confirmed registrations before race
+  /// start, then returns an **in-memory** map of registrationId → displayName.
+  ///
+  /// **PII policy**: display names are returned to the caller for in-memory use
+  /// only.  They are never written to the local SQLite database.  The caller
+  /// (scanner screen) holds the map in widget state and discards it on dispose.
+  Future<Map<int, String>> preRaceSync({
     required int eventId,
     required String token,
   }) async {
@@ -101,15 +107,25 @@ class SyncEngine {
       final regs = await _api.listRegistrations(eventId, token: token);
       await _regsDao.upsertAll(regs);
 
-      // Populate runner token map for offline NFC/QR lookup
+      // Build an in-memory name map from the API response.
+      // Names are NOT written to SQLite — the local runner_tokens table stores
+      // only opaque IDs (see SECURITY.md).
+      final nameMap = <int, String>{};
       for (final reg in regs) {
+        // listRegistrations returns ApiRegistrationWithUser which includes
+        // the user's display name.  Fall back to "Runner #id" defensively.
+        final displayName = reg is ApiRegistrationWithUser
+            ? reg.displayName
+            : 'Runner #${reg.id}';
+        nameMap[reg.id] = displayName;
+
+        // Persist only opaque IDs to the encrypted local database.
         if (reg.runnerToken != null) {
           await _regsDao.upsertRunnerToken(
             token: reg.runnerToken!,
             registrationId: reg.id,
             eventId: reg.eventId,
             userId: reg.userId,
-            displayName: reg.preferredName ?? reg.userEmail,
           );
         }
       }
@@ -120,6 +136,8 @@ class SyncEngine {
         pendingCount: pending,
         lastSyncAt: DateTime.now(),
       ));
+
+      return nameMap;
     } catch (e) {
       _emit(_state.copyWith(
         status: SyncStatus.error,
@@ -132,7 +150,6 @@ class SyncEngine {
   // ── Lap log upload ─────────────────────────────────────────────────────────
 
   /// Push all unsynced lap logs to the server in batches.
-  /// Pass [token] = null in background isolate (sync is best-effort there).
   Future<int> syncPendingLogs({String? token}) async {
     if (token == null) return 0; // no auth → skip
     _emit(_state.copyWith(status: SyncStatus.syncing));

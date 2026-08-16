@@ -8,7 +8,7 @@ Multi-tenant Beer Mile race timing app for iOS and Android.
 |-------|-----------|
 | UI | Flutter 3.x, Material 3 |
 | State Management | Riverpod |
-| Local Database | sqflite (offline-first, no code generation required) |
+| Local Database | SQLCipher via sqflite_sqlcipher (AES-256 encrypted at rest) |
 | Auth | Clerk — WebView-based OAuth hosted sign-in |
 | API Client | Typed Dart HTTP client (matches `lib/api-spec/openapi.yaml`) |
 | Navigation | go_router |
@@ -97,16 +97,34 @@ flutter run \
   --dart-define=NFC_HMAC_SECRET=dev-secret
 ```
 
-## Database
+## Local Database
 
-The app uses **sqflite** for the local offline database. Tables are created and
-migrated in `lib/database/app_database.dart`. No code generation step is required
-— `flutter pub get` is sufficient.
+The app uses **SQLCipher** (via `sqflite_sqlcipher`) for the local offline
+database.  The database file is encrypted at rest with AES-256.  Tables are
+created and migrated in `lib/database/app_database.dart`.  No code generation
+step is required — `flutter pub get` is sufficient.
 
-If you need to inspect the local database during development:
+### Encryption key
+
+A random 32-byte key is generated on first launch and stored in
+`FlutterSecureStorage` (Android Keystore / iOS Keychain).  The key is never
+stored in plaintext or `SharedPreferences`.
+
+### PII policy
+
+Display names, email addresses, and other personal data are **never written to
+SQLite**.  The local database stores only opaque IDs (integer registration IDs,
+Clerk user ID strings).  Names are held in memory during a scanner session only
+and are discarded when the screen closes.  See `SECURITY.md` for the full
+on-device / server-only data boundary.
+
+### Inspecting the database during development
+
+The database is encrypted, so standard SQLite tools cannot read it directly.
+Use the `sqlcipher` CLI with the key from FlutterSecureStorage:
 
 ```bash
-# Android emulator
+# Android emulator — find the database file
 adb shell "run-as com.beermile.app ls /data/data/com.beermile.app/databases/"
 ```
 
