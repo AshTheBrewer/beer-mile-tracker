@@ -5,7 +5,8 @@
  * Beer Mile multi-tenant event tracking API
  * OpenAPI spec version: 0.1.0
  */
+import type { LapLogEntry } from './lapLogEntry';
 
-export interface HealthStatus {
-  status: string;
+export interface LapLogBatch {
+  records: LapLogEntry[];
 }

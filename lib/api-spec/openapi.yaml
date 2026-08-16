@@ -3,13 +3,28 @@ info:
   # Do not change the title, if the title changes, the import paths will be broken
   title: Api
   version: 0.1.0
-  description: API specification
+  description: Beer Mile multi-tenant event tracking API
 servers:
   - url: /api
     description: Base API path
 tags:
   - name: health
     description: Health operations
+  - name: users
+    description: User management
+  - name: events
+    description: Event management
+  - name: registrations
+    description: Race registrations
+  - name: lap-logs
+    description: Lap timing logs
+  - name: leaderboard
+    description: Race leaderboards
+  - name: admin
+    description: Admin-only operations
+  - name: platform-settings
+    description: Platform-wide settings
+
 paths:
   /healthz:
     get:
@@ -24,6 +39,389 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/HealthStatus"
+
+  /users/me:
+    get:
+      operationId: getMe
+      tags: [users]
+      summary: Get current user
+      responses:
+        "200":
+          description: Current user
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/User"
+        "404":
+          description: User not found
+    patch:
+      operationId: updateMe
+      tags: [users]
+      summary: Update current user profile
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/UserProfileUpdate"
+      responses:
+        "200":
+          description: Updated user
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/User"
+
+  /users/me/provision:
+    post:
+      operationId: provisionUser
+      tags: [users]
+      summary: Provision user from Clerk JWT (create if not exists)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/UserProvision"
+      responses:
+        "200":
+          description: Existing user
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/User"
+        "201":
+          description: Newly created user
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/User"
+
+  /events:
+    get:
+      operationId: listEvents
+      tags: [events]
+      summary: List events (public browsing + host's own events)
+      responses:
+        "200":
+          description: List of events
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/Event"
+    post:
+      operationId: createEvent
+      tags: [events]
+      summary: Create a new event (host only)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/EventInput"
+      responses:
+        "201":
+          description: Created event
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Event"
+
+  /events/join:
+    post:
+      operationId: joinEventByCode
+      tags: [events]
+      summary: Find an event by private event code
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/EventCodeLookup"
+      responses:
+        "200":
+          description: Found event
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Event"
+        "404":
+          description: Event not found
+
+  /events/{id}:
+    get:
+      operationId: getEvent
+      tags: [events]
+      summary: Get event by ID
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: number
+      responses:
+        "200":
+          description: Event detail
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Event"
+        "404":
+          description: Not found
+    patch:
+      operationId: updateEvent
+      tags: [events]
+      summary: Update event (host or super_admin only)
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: number
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/EventUpdate"
+      responses:
+        "200":
+          description: Updated event
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Event"
+        "403":
+          description: Forbidden
+        "404":
+          description: Not found
+    delete:
+      operationId: deleteEvent
+      tags: [events]
+      summary: Delete event (host or super_admin only)
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: number
+      responses:
+        "204":
+          description: Deleted
+        "403":
+          description: Forbidden
+        "404":
+          description: Not found
+
+  /events/{id}/registrations:
+    get:
+      operationId: listRegistrations
+      tags: [registrations]
+      summary: List registrations for an event (host or super_admin only)
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: number
+      responses:
+        "200":
+          description: List of registrations with user info
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/RegistrationWithUser"
+        "403":
+          description: Forbidden
+    post:
+      operationId: createRegistration
+      tags: [registrations]
+      summary: Register current user for an event
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: number
+      responses:
+        "201":
+          description: Registration created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Registration"
+        "409":
+          description: Already registered
+
+  /registrations/{id}:
+    patch:
+      operationId: updateRegistration
+      tags: [registrations]
+      summary: Update registration (payment status, tag UID, runner token)
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: number
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/RegistrationUpdate"
+      responses:
+        "200":
+          description: Updated registration
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Registration"
+        "403":
+          description: Forbidden
+        "404":
+          description: Not found
+
+  /lap-logs:
+    post:
+      operationId: ingestLapLogs
+      tags: [lap-logs]
+      summary: Bulk ingest lap log records (idempotent by clientEventLogId)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/LapLogBatch"
+      responses:
+        "200":
+          description: Processed log IDs
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/LapLogIngestResult"
+
+  /events/{id}/leaderboard:
+    get:
+      operationId: getLeaderboard
+      tags: [leaderboard]
+      summary: Get leaderboard for an event
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: number
+      responses:
+        "200":
+          description: Leaderboard entries
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/LeaderboardEntry"
+        "404":
+          description: Not found
+
+  /admin/analytics:
+    get:
+      operationId: getAdminAnalytics
+      tags: [admin]
+      summary: Platform-wide analytics (super_admin only)
+      responses:
+        "200":
+          description: Analytics data
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AdminAnalytics"
+        "403":
+          description: Forbidden
+
+  /admin/tenants:
+    get:
+      operationId: listTenants
+      tags: [admin]
+      summary: List all tenants (super_admin only)
+      responses:
+        "200":
+          description: List of tenants
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/TenantWithUser"
+
+  /platform-settings:
+    get:
+      operationId: getPlatformSettings
+      tags: [platform-settings]
+      summary: Get platform settings
+      responses:
+        "200":
+          description: Platform settings
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PlatformSettings"
+    patch:
+      operationId: updatePlatformSettings
+      tags: [platform-settings]
+      summary: Update platform settings (super_admin only)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/PlatformSettingsUpdate"
+      responses:
+        "200":
+          description: Updated settings
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PlatformSettings"
+        "403":
+          description: Forbidden
+
+  /tenants/me:
+    get:
+      operationId: getMyTenant
+      tags: [users]
+      summary: Get current host's tenant
+      responses:
+        "200":
+          description: Tenant info
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Tenant"
+        "404":
+          description: Not found
+    post:
+      operationId: createTenant
+      tags: [users]
+      summary: Create a tenant for the current host user
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/TenantInput"
+      responses:
+        "201":
+          description: Created tenant
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Tenant"
+
 components:
   schemas:
     HealthStatus:
@@ -34,3 +432,378 @@ components:
       required:
         - status
 
+    User:
+      type: object
+      required: [id, email, role, createdAt]
+      properties:
+        id:
+          type: string
+        email:
+          type: string
+        role:
+          type: string
+          enum: [super_admin, host, runner]
+        gender:
+          type: ["string", "null"]
+          enum: [male, female, non_binary, prefer_not_to_say, null]
+        birthdate:
+          type: ["string", "null"]
+        preferredName:
+          type: ["string", "null"]
+        authProvider:
+          type: string
+        createdAt:
+          type: string
+          format: date-time
+        updatedAt:
+          type: string
+          format: date-time
+
+    UserProvision:
+      type: object
+      properties:
+        preferredName:
+          type: string
+
+    UserProfileUpdate:
+      type: object
+      properties:
+        gender:
+          type: string
+          enum: [male, female, non_binary, prefer_not_to_say]
+        birthdate:
+          type: string
+        preferredName:
+          type: string
+
+    Tenant:
+      type: object
+      required: [id, userId, organizationName, createdAt]
+      properties:
+        id:
+          type: number
+        userId:
+          type: string
+        organizationName:
+          type: string
+        createdAt:
+          type: string
+          format: date-time
+
+    TenantInput:
+      type: object
+      required: [organizationName]
+      properties:
+        organizationName:
+          type: string
+          minLength: 1
+
+    TenantWithUser:
+      type: object
+      required: [id, userId, organizationName, createdAt]
+      properties:
+        id:
+          type: number
+        userId:
+          type: string
+        organizationName:
+          type: string
+        createdAt:
+          type: string
+          format: date-time
+        userEmail:
+          type: ["string", "null"]
+
+    Event:
+      type: object
+      required: [id, tenantId, title, eventCode, eventDate, status, createdAt]
+      properties:
+        id:
+          type: number
+        tenantId:
+          type: number
+        title:
+          type: string
+        eventCode:
+          type: string
+        eventDate:
+          type: string
+        locationLat:
+          type: ["number", "null"]
+        locationLng:
+          type: ["number", "null"]
+        locationName:
+          type: ["string", "null"]
+        beerType:
+          type: ["string", "null"]
+        entryFee:
+          type: ["string", "null"]
+        paymentInstructions:
+          type: ["string", "null"]
+        prizesJson:
+          type: ["array", "null"]
+          items:
+            $ref: "#/components/schemas/Prize"
+        status:
+          type: string
+          enum: [draft, open, active, completed, cancelled]
+        createdAt:
+          type: string
+          format: date-time
+        updatedAt:
+          type: string
+          format: date-time
+
+    Prize:
+      type: object
+      required: [position, description]
+      properties:
+        position:
+          type: number
+        description:
+          type: string
+
+    EventInput:
+      type: object
+      required: [title, eventDate]
+      properties:
+        title:
+          type: string
+          minLength: 1
+        eventDate:
+          type: string
+        locationLat:
+          type: number
+        locationLng:
+          type: number
+        locationName:
+          type: string
+        beerType:
+          type: string
+        entryFee:
+          type: string
+        paymentInstructions:
+          type: string
+        prizesJson:
+          type: array
+          items:
+            $ref: "#/components/schemas/Prize"
+        status:
+          type: string
+          enum: [draft, open, active, completed, cancelled]
+
+    EventUpdate:
+      type: object
+      properties:
+        title:
+          type: string
+          minLength: 1
+        eventDate:
+          type: string
+        locationLat:
+          type: number
+        locationLng:
+          type: number
+        locationName:
+          type: string
+        beerType:
+          type: string
+        entryFee:
+          type: string
+        paymentInstructions:
+          type: string
+        prizesJson:
+          type: array
+          items:
+            $ref: "#/components/schemas/Prize"
+        status:
+          type: string
+          enum: [draft, open, active, completed, cancelled]
+
+    EventCodeLookup:
+      type: object
+      required: [eventCode]
+      properties:
+        eventCode:
+          type: string
+
+    Registration:
+      type: object
+      required: [id, eventId, userId, paymentStatus, registeredAt]
+      properties:
+        id:
+          type: number
+        eventId:
+          type: number
+        userId:
+          type: string
+        paymentStatus:
+          type: string
+          enum: [pending, confirmed]
+        tagUid:
+          type: ["string", "null"]
+        runnerToken:
+          type: ["string", "null"]
+        registeredAt:
+          type: string
+          format: date-time
+        updatedAt:
+          type: string
+          format: date-time
+
+    RegistrationWithUser:
+      type: object
+      required: [id, eventId, userId, paymentStatus, registeredAt]
+      properties:
+        id:
+          type: number
+        eventId:
+          type: number
+        userId:
+          type: string
+        paymentStatus:
+          type: string
+          enum: [pending, confirmed]
+        tagUid:
+          type: ["string", "null"]
+        runnerToken:
+          type: ["string", "null"]
+        registeredAt:
+          type: string
+          format: date-time
+        updatedAt:
+          type: string
+          format: date-time
+        userEmail:
+          type: ["string", "null"]
+        preferredName:
+          type: ["string", "null"]
+        gender:
+          type: ["string", "null"]
+        birthdate:
+          type: ["string", "null"]
+
+    RegistrationUpdate:
+      type: object
+      properties:
+        paymentStatus:
+          type: string
+          enum: [pending, confirmed]
+        tagUid:
+          type: string
+        runnerToken:
+          type: string
+
+    LapLogEntry:
+      type: object
+      required: [clientEventLogId, registrationId, lapNumber, elapsedMs, pourConfirmed]
+      properties:
+        clientEventLogId:
+          type: string
+        registrationId:
+          type: number
+        lapNumber:
+          type: number
+        splitTimeMs:
+          type: ["number", "null"]
+        elapsedMs:
+          type: number
+        pourConfirmed:
+          type: boolean
+        deviceMonotonicTimestamp:
+          type: ["number", "null"]
+
+    LapLogBatch:
+      type: object
+      required: [records]
+      properties:
+        records:
+          type: array
+          items:
+            $ref: "#/components/schemas/LapLogEntry"
+
+    LapLogIngestResult:
+      type: object
+      required: [processedIds]
+      properties:
+        processedIds:
+          type: array
+          items:
+            type: string
+
+    LeaderboardEntry:
+      type: object
+      required: [registrationId, userId, totalElapsedMs, lapCount, laps]
+      properties:
+        registrationId:
+          type: number
+        userId:
+          type: string
+        preferredName:
+          type: ["string", "null"]
+        gender:
+          type: ["string", "null"]
+        totalElapsedMs:
+          type: number
+        lapCount:
+          type: number
+        finished:
+          type: boolean
+        laps:
+          type: array
+          items:
+            $ref: "#/components/schemas/LapSplit"
+
+    LapSplit:
+      type: object
+      required: [lapNumber, elapsedMs]
+      properties:
+        lapNumber:
+          type: number
+        elapsedMs:
+          type: number
+        splitTimeMs:
+          type: ["number", "null"]
+        pourConfirmed:
+          type: boolean
+
+    AdminAnalytics:
+      type: object
+      required: [totalEvents, totalRunners, totalTenants, totalFinishers, avgLapTimeMs]
+      properties:
+        totalEvents:
+          type: number
+        totalRunners:
+          type: number
+        totalTenants:
+          type: number
+        totalFinishers:
+          type: number
+        avgLapTimeMs:
+          type: ["number", "null"]
+        eventsByStatus:
+          type: object
+          additionalProperties:
+            type: number
+
+    PlatformSettings:
+      type: object
+      required: [id]
+      properties:
+        id:
+          type: number
+        appStoreIosUrl:
+          type: ["string", "null"]
+        playStoreAndroidUrl:
+          type: ["string", "null"]
+        updatedAt:
+          type: string
+          format: date-time
+
+    PlatformSettingsUpdate:
+      type: object
+      properties:
+        appStoreIosUrl:
+          type: string
+        playStoreAndroidUrl:
+          type: string

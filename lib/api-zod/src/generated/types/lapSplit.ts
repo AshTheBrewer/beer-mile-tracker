@@ -6,6 +6,10 @@
  * OpenAPI spec version: 0.1.0
  */
 
-export interface HealthStatus {
-  status: string;
+export interface LapSplit {
+  lapNumber: number;
+  elapsedMs: number;
+  /** @nullable */
+  splitTimeMs?: number | null;
+  pourConfirmed?: boolean;
 }
