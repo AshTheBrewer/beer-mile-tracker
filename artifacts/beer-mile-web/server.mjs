@@ -128,8 +128,9 @@ function sendFile(req, res, filePath) {
     'content-length': fileStat.size,
     'cache-control':
       filePath === indexFile
-        ? 'no-cache'
+        ? 'no-store'
         : 'public, max-age=31536000, immutable',
+    'x-content-type-options': 'nosniff',
   });
   if (req.method === 'HEAD') res.end();
   else createReadStream(filePath).pipe(res);
@@ -164,6 +165,22 @@ const server = createServer((req, res) => {
     requestedFile === publicDir || requestedFile.startsWith(`${publicDir}${sep}`);
 
   if (isInsidePublicDir && sendFile(req, res, requestedFile)) return;
+
+  // Never serve the SPA document for a missing asset. Returning HTML with a
+  // 200 status for a stale hashed JS/CSS URL causes browsers to report a
+  // misleading strict-MIME-type module error.
+  if (pathname.startsWith('/assets/') || extname(pathname)) {
+    const body = 'Asset not found.\n';
+    res.writeHead(404, {
+      'cache-control': 'no-store',
+      'content-length': Buffer.byteLength(body),
+      'content-type': 'text/plain; charset=utf-8',
+      'x-content-type-options': 'nosniff',
+    });
+    res.end(body);
+    return;
+  }
+
   if (sendFile(req, res, indexFile)) return;
 
   const body = 'Frontend build not found.\n';
