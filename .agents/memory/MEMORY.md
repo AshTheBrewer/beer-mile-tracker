@@ -1,2 +1,3 @@
 - [Railway service boundaries](railway-service-boundaries.md) — avoid a root API start script to mask unrelated Railway service failures.
 - [Static asset serving](static-asset-serving.md) — normalize the public root before file containment checks; otherwise valid assets can fall through as HTML.
+- [Clerk proxy 403s](clerk-proxy-403.md) — a Clerk proxy asset response of `403 error code: 1000` points to a rejected proxy credential, not a missing JS asset.
