@@ -1,0 +1,1 @@
+- [Railway service boundaries](railway-service-boundaries.md) — avoid a root API start script to mask unrelated Railway service failures.
