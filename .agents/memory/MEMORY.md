@@ -1,1 +1,2 @@
 - [Railway service boundaries](railway-service-boundaries.md) — avoid a root API start script to mask unrelated Railway service failures.
+- [Static asset serving](static-asset-serving.md) — normalize the public root before file containment checks; otherwise valid assets can fall through as HTML.

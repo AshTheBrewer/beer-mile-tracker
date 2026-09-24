@@ -32,7 +32,7 @@ if (
   throw new Error('API_UPSTREAM_URL must be an origin without credentials or a path.');
 }
 
-const publicDir = fileURLToPath(new URL('./dist/public/', import.meta.url));
+const publicDir = resolve(fileURLToPath(new URL('./dist/public/', import.meta.url)));
 const indexFile = resolve(publicDir, 'index.html');
 const requestUpstream =
   upstream.protocol === 'https:' ? httpsRequest : httpRequest;
