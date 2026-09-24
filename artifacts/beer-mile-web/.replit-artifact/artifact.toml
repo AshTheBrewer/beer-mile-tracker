@@ -1,0 +1,28 @@
+kind = "web"
+previewPath = "/"
+title = "Beer Mile Tracker"
+description = "The production web frontend for Beer Mile Tracker, where runners discover and join races, follow live leaderboards, manage profiles, and hosts organize events and registrations."
+version = "1.0.0"
+id = "artifacts/beer-mile-web"
+router = "path"
+
+[[services]]
+name = "web"
+paths = [ "/" ]
+localPort = 25422
+
+[services.development]
+run = "pnpm --filter @workspace/beer-mile-web run dev"
+
+[services.production]
+build = [ "pnpm", "--filter", "@workspace/beer-mile-web", "run", "build" ]
+serve = "static"
+publicDir = "artifacts/beer-mile-web/dist/public"
+
+[[services.production.rewrites]]
+from = "/*"
+to = "/index.html"
+
+[services.env]
+PORT = "25422"
+BASE_PATH = "/"

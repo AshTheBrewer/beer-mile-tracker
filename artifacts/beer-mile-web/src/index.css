@@ -1,0 +1,63 @@
+@import url('https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@500;600;700;800;900&family=DM+Sans:wght@400;500;600;700&family=Space+Mono:wght@400;700&display=swap');
+@import 'tailwindcss';
+@import 'tw-animate-css';
+@plugin "@tailwindcss/typography";
+
+@theme inline {
+  --color-background: hsl(var(--background)); --color-foreground: hsl(var(--foreground));
+  --color-card: hsl(var(--card)); --color-card-foreground: hsl(var(--card-foreground));
+  --color-popover: hsl(var(--popover)); --color-popover-foreground: hsl(var(--popover-foreground));
+  --color-primary: hsl(var(--primary)); --color-primary-foreground: hsl(var(--primary-foreground));
+  --color-secondary: hsl(var(--secondary)); --color-secondary-foreground: hsl(var(--secondary-foreground));
+  --color-muted: hsl(var(--muted)); --color-muted-foreground: hsl(var(--muted-foreground));
+  --color-accent: hsl(var(--accent)); --color-accent-foreground: hsl(var(--accent-foreground));
+  --color-destructive: hsl(var(--destructive)); --color-destructive-foreground: hsl(var(--destructive-foreground));
+  --color-border: hsl(var(--border)); --color-input: hsl(var(--input)); --color-ring: hsl(var(--ring));
+  --font-sans: 'DM Sans', sans-serif; --font-mono: 'Space Mono', monospace;
+}
+:root {
+  --background: 44 41% 94%; --foreground: 180 23% 14%; --card: 45 55% 97%; --card-foreground: 180 23% 14%;
+  --popover: 45 55% 97%; --popover-foreground: 180 23% 14%; --primary: 12 76% 48%; --primary-foreground: 44 70% 96%;
+  --secondary: 178 32% 21%; --secondary-foreground: 44 70% 96%; --muted: 40 28% 86%; --muted-foreground: 177 12% 39%;
+  --accent: 42 96% 57%; --accent-foreground: 180 23% 14%; --destructive: 4 67% 45%; --destructive-foreground: 44 70% 96%;
+  --border: 39 19% 76%; --input: 39 19% 76%; --ring: 12 76% 48%; --radius: .4rem;
+}
+.dark {
+  --background: 180 24% 11%; --foreground: 44 42% 94%; --card: 179 23% 16%; --card-foreground: 44 42% 94%;
+  --popover: 179 23% 16%; --popover-foreground: 44 42% 94%; --primary: 12 76% 58%; --primary-foreground: 180 23% 10%;
+  --secondary: 178 24% 24%; --secondary-foreground: 44 42% 94%; --muted: 180 16% 23%; --muted-foreground: 44 15% 70%;
+  --accent: 42 96% 57%; --accent-foreground: 180 23% 14%; --destructive: 4 67% 55%; --destructive-foreground: 44 70% 96%;
+  --border: 180 14% 31%; --input: 180 14% 31%; --ring: 12 76% 58%;
+}
+* { box-sizing: border-box; }
+html { scroll-behavior: smooth; }
+body { margin: 0; background: hsl(var(--background)); color: hsl(var(--foreground)); font-family: 'DM Sans', sans-serif; -webkit-font-smoothing: antialiased; }
+button, input, select, textarea { font: inherit; }
+button { cursor: pointer; }
+a { color: inherit; text-decoration: none; }
+::selection { background: hsl(var(--accent)); color: hsl(var(--foreground)); }
+.display { font-family: 'Barlow Condensed', Impact, sans-serif; font-weight: 800; text-transform: uppercase; line-height: .84; letter-spacing: -.025em; }
+.mono { font-family: 'Space Mono', monospace; letter-spacing: -.04em; }
+.shell { max-width: 1420px; padding: 0 clamp(20px, 5vw, 82px); margin: 0 auto; }
+.eyebrow { font: 700 11px 'Space Mono', monospace; text-transform: uppercase; letter-spacing: .12em; }
+.btn { display: inline-flex; align-items: center; justify-content: center; gap: 10px; border: 1px solid transparent; border-radius: 3px; padding: 13px 19px; font-weight: 800; font-size: 13px; text-transform: uppercase; letter-spacing: .065em; transition: transform .2s ease, background .2s ease, opacity .2s ease; white-space: nowrap; }
+.btn:hover:not(:disabled) { transform: translateY(-3px); }
+.btn:active:not(:disabled) { transform: translateY(0); }
+.btn:disabled { opacity: .5; cursor: not-allowed; }
+.btn-primary { background: hsl(var(--primary)); color: hsl(var(--primary-foreground)); }
+.btn-dark { background: hsl(var(--secondary)); color: hsl(var(--secondary-foreground)); }
+.btn-outline { border-color: hsl(var(--foreground)); color: hsl(var(--foreground)); background: transparent; }
+.btn-light { background: hsl(var(--background)); color: hsl(var(--foreground)); }
+.field { width: 100%; border: 1px solid hsl(var(--border)); background: hsl(var(--card)); padding: 13px 15px; border-radius: 3px; outline: none; color: hsl(var(--foreground)); transition: border-color .2s; }
+.field:focus { border-color: hsl(var(--primary)); }
+.field-label { display: block; margin-bottom: 8px; font: 700 11px 'Space Mono', monospace; text-transform: uppercase; letter-spacing: .07em; }
+.panel { background: hsl(var(--card)); border: 1px solid hsl(var(--border)); border-radius: 3px; }
+.rule { border-top: 1px solid hsl(var(--border)); }
+.fade-in { animation: rise .6s cubic-bezier(.2,.8,.2,1) both; }
+@keyframes rise { from { opacity: 0; transform: translateY(20px); } to { opacity: 1; transform: translateY(0); } }
+.event-card { transition: transform .25s ease, box-shadow .25s ease; }
+.event-card:hover { transform: translateY(-5px); box-shadow: 8px 8px 0 hsl(var(--secondary)); }
+.track-lines { background: repeating-radial-gradient(ellipse 75% 110% at 85% 35%, transparent 0 46px, rgba(255,255,255,.21) 47px 49px, transparent 50px 84px); }
+.skeleton { background: linear-gradient(90deg, hsl(var(--muted)) 25%, hsl(var(--card)) 50%, hsl(var(--muted)) 75%); background-size: 200% 100%; animation: shimmer 1.4s linear infinite; border-radius: 3px; }
+@keyframes shimmer { to { background-position: -200% 0; } }
+@media (prefers-reduced-motion: reduce) { *, *::before, *::after { scroll-behavior: auto !important; animation-duration: .01ms !important; transition-duration: .01ms !important; } }
